@@ -89,7 +89,7 @@ def main(args: argparse.Namespace):
 
     # define optimizer and lr scheduler
     optimizer = SGD(all_parameters, args.lr, momentum=args.momentum, weight_decay=args.weight_decay, nesterov=True)
-    lr_sheduler = StepwiseLR(optimizer, init_lr=args.lr, gamma=0.001, decay_rate=0.75)
+    lr_scheduler = StepwiseLR(optimizer, init_lr=args.lr, gamma=0.001, decay_rate=0.75)
 
     # define loss function
     domain_adv = ConditionalDomainAdversarialLoss(
@@ -102,7 +102,7 @@ def main(args: argparse.Namespace):
     for epoch in range(args.epochs):
         # train for one epoch
         train(train_source_iter, train_target_iter, classifier, domain_adv, optimizer,
-              lr_sheduler, epoch, args)
+              lr_scheduler, epoch, args)
 
         # evaluate on validation set
         acc1 = validate(val_loader, classifier, args)

@@ -23,9 +23,11 @@ import dalib.vision.models as models
 from tools.utils import AverageMeter, ProgressMeter, accuracy, ForeverDataIterator
 from tools.transforms import ResizeImage
 from tools.lr_scheduler import StepwiseLR
+from torch.utils.tensorboard import SummaryWriter
 
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+writer = SummaryWriter(log_dir='logs/aw2/')
 
 
 def main(args: argparse.Namespace):
@@ -58,13 +60,13 @@ def main(args: argparse.Namespace):
     ])
 
     dataset = datasets.__dict__[args.data]
-    train_source_dataset = dataset(root=args.root, task=args.source, download=True, transform=train_transform)
+    train_source_dataset = dataset(root=args.root, task=args.source, download=False, transform=train_transform)
     train_source_loader = DataLoader(train_source_dataset, batch_size=args.batch_size,
                                      shuffle=True, num_workers=args.workers, drop_last=True)
-    train_target_dataset = dataset(root=args.root, task=args.target, download=True, transform=train_transform)
+    train_target_dataset = dataset(root=args.root, task=args.target, download=False, transform=train_transform)
     train_target_loader = DataLoader(train_target_dataset, batch_size=args.batch_size,
                                      shuffle=True, num_workers=args.workers, drop_last=True)
-    val_dataset = dataset(root=args.root, task=args.target, download=True, transform=val_transform)
+    val_dataset = dataset(root=args.root, task=args.target, download=False, transform=val_transform)
     val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False, num_workers=args.workers)
     if args.data == 'DomainNet':
         test_dataset = dataset(root=args.root, task=args.target, evaluate=True, download=True, transform=val_transform)
@@ -74,6 +76,8 @@ def main(args: argparse.Namespace):
 
     train_source_iter = ForeverDataIterator(train_source_loader)
     train_target_iter = ForeverDataIterator(train_target_loader)
+    print(train_source_iter.__len__())
+    print(train_target_iter.__len__())
 
     # create model
     print("=> using pre-trained model '{}'".format(args.arch))
@@ -97,19 +101,24 @@ def main(args: argparse.Namespace):
               lr_scheduler, epoch, args)
 
         # evaluate on validation set
-        acc1 = validate(val_loader, classifier, args)
+        acc1 = validate(val_loader, classifier, args, epoch)
 
         # remember best acc@1 and save checkpoint
         if acc1 > best_acc1:
             best_model = copy.deepcopy(classifier.state_dict())
+            torch.save({'epoch': epoch + 1,
+                        'state_dict': classifier.state_dict(),
+                        'optimizer': optimizer.state_dict(),
+                        'best_acc': acc1}, 'weights/model_{}_{:.3f}.pth'.format(epoch+1, acc1))
         best_acc1 = max(acc1, best_acc1)
 
     print("best_acc1 = {:3.1f}".format(best_acc1))
 
     # evaluate on test set
     classifier.load_state_dict(best_model)
-    acc1 = validate(test_loader, classifier, args)
+    acc1 = validate(test_loader, classifier, args, epoch)
     print("test_acc1 = {:3.1f}".format(acc1))
+    writer.close()
 
 
 def train(train_source_iter: ForeverDataIterator, train_target_iter: ForeverDataIterator,
@@ -172,8 +181,13 @@ def train(train_source_iter: ForeverDataIterator, train_target_iter: ForeverData
         if i % args.print_freq == 0:
             progress.display(i)
 
+    writer.add_scalar('Loss/Train', losses.avg, epoch)
+    writer.add_scalar('Accuracy_class/Train', cls_accs.avg, epoch)
+    writer.add_scalar('Accuracy_domain/Train', domain_accs.avg, epoch)
+    writer.add_scalar('Learning Rate', lr_scheduler.get_lr(), epoch)
 
-def validate(val_loader: DataLoader, model: ImageClassifier, args: argparse.Namespace) -> float:
+
+def validate(val_loader: DataLoader, model: ImageClassifier, args: argparse.Namespace, epoch: int) -> float:
     batch_time = AverageMeter('Time', ':6.3f')
     losses = AverageMeter('Loss', ':.4e')
     top1 = AverageMeter('Acc@1', ':6.2f')
@@ -211,7 +225,8 @@ def validate(val_loader: DataLoader, model: ImageClassifier, args: argparse.Name
 
         print(' * Acc@1 {top1.avg:.3f} Acc@5 {top5.avg:.3f}'
               .format(top1=top1, top5=top5))
-
+    writer.add_scalar('Loss/Validation', losses.avg, epoch)
+    writer.add_scalar('Accuracy_class/Validation', top1.avg, epoch)
     return top1.avg
 
 
@@ -265,4 +280,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
     print(args)
     main(args)
+
+
+#     python examples/dann.py data/office31 -d Office31 -s A -t W -a resnet50 -b 16 --epochs 20
 

@@ -93,6 +93,10 @@ def main(args: argparse.Namespace):
         # remember best acc@1 and save checkpoint
         if acc1 > best_acc1:
             best_model = copy.deepcopy(classifier.state_dict())
+            torch.save({'epoch': epoch + 1,
+                        'state_dict': classifier.state_dict(),
+                        'optimizer': optimizer.state_dict(),
+                        'best_acc': acc1}, 'weights/model_source_A2W_{}_{:.3f}.pth'.format(epoch + 1, acc1))
         best_acc1 = max(acc1, best_acc1)
 
     print("best_acc1 = {:3.1f}".format(best_acc1))
